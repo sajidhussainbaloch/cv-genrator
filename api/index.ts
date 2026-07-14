@@ -30,7 +30,7 @@ function getUserId(req: any): string {
       }
     } catch {}
   }
-  return "default";
+  return "00000000-0000-0000-0000-000000000000";
 }
 
 async function callLLM(config: { base_url: string; api_key: string; model: string; temperature?: number; max_tokens?: number }, messages: { role: string; content: string }[]): Promise<string | null> {
