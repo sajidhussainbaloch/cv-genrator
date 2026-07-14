@@ -1,5 +1,6 @@
-import { Settings, LogOut, User } from "lucide-react";
+import { Settings, LogOut } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
+import ProviderSelector from "./providers/ProviderSelector";
 
 interface DashboardHeaderProps {
   userName: string;
@@ -18,7 +19,8 @@ export default function DashboardHeader({ userName, onOpenSettings }: DashboardH
           </div>
           <span className="text-sm font-bold text-gray-900">CV Studio</span>
         </div>
-        <div className="flex items-center gap-3 ml-auto">
+        <div className="flex items-center gap-2 ml-auto">
+          <ProviderSelector />
           <button onClick={onOpenSettings} className="p-2 hover:bg-gray-100 rounded-xl transition" title="Settings">
             <Settings className="w-4 h-4 text-gray-500" />
           </button>

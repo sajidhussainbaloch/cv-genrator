@@ -84,3 +84,23 @@ export interface CvHistoryEntry {
 
 export type AppStep = "upload" | "analyze" | "improve" | "jobs";
 export type LoadingState = "idle" | "loading" | "success" | "error";
+
+export interface Provider {
+  id: string;
+  user_id: string;
+  name: string;
+  base_url: string;
+  api_key: string;
+  model: string;
+  temperature: number;
+  max_tokens: number;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AgentStep {
+  tool: string;
+  status: "running" | "complete" | "error";
+  message: string;
+  result?: string;
+}

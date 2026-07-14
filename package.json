@@ -12,6 +12,7 @@
     "@supabase/supabase-js": "^2.110.3",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "duck-duck-scrape": "^2.2.7",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",
     "mammoth": "^1.9.0",
@@ -21,7 +22,9 @@
     "pdfjs-dist": "^4.0.379",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3"
+    "react-router-dom": "^7.18.1",
+    "vite": "^6.2.3",
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

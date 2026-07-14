@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Settings, Eye, EyeOff, Check, Loader2 } from "lucide-react";
 import type { AiSettings } from "../types";
 import { getSettings, saveSettings } from "../api";
@@ -19,12 +19,12 @@ export default function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [showKey, setShowKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
-  if (open && !loaded) {
-    setLoaded(true);
-    getSettings().then(setSettings).catch(() => {});
-  }
+  useEffect(() => {
+    if (open) {
+      getSettings().then(setSettings).catch(() => {});
+    }
+  }, [open]);
 
   if (!open) return null;
 

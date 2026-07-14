@@ -100,7 +100,7 @@ export default function Dashboard() {
     setIsMockJobs(false);
     try {
       const loc = jobLocation || (await getSettings().then((s) => s.location).catch(() => ""));
-      await new Promise((r) => setTimeout(r, 2500));
+
       const res = await fetch("/api/jobs/search", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skills: jobSkills, role: jobRole, cvText, location: loc }),
