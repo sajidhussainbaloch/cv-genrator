@@ -155,8 +155,8 @@ async function extractText(filePath: string, mimetype: string): Promise<string> 
   if (mimetype === "text/plain") return fs.readFileSync(filePath, "utf-8");
   if (mimetype === "application/pdf") {
     const dataBuffer = fs.readFileSync(filePath);
-    const pdfjs = await import("pdfjs-dist");
-    const doc = await pdfjs.getDocument(new Uint8Array(dataBuffer)).promise;
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(dataBuffer), useWorkerFetch: false, disableWorker: true, disableFontFace: true, isEvalSupported: false }).promise;
     let text = "";
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
