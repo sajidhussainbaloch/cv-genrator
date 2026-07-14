@@ -28,11 +28,11 @@ function loadEnv() {
   }
 }
 loadEnv();
-const DATA_DIR = path.join(__dirname, "data");
-const UPLOAD_DIR = path.join(__dirname, "uploads");
+const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "data") : path.join(__dirname, "data");
+const UPLOAD_DIR = process.env.VERCEL ? path.join("/tmp", "uploads") : path.join(__dirname, "uploads");
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
+try { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch {}
 
 const SETTINGS_PATH = path.join(DATA_DIR, "settings.json");
 const ANALYSES_PATH = path.join(DATA_DIR, "analyses.json");
@@ -47,25 +47,32 @@ const defaultSettings = {
 };
 
 function initData() {
-  if (!fs.existsSync(SETTINGS_PATH)) {
-    fs.writeFileSync(SETTINGS_PATH, JSON.stringify(defaultSettings, null, 2));
-  }
-  if (!fs.existsSync(ANALYSES_PATH)) {
-    fs.writeFileSync(ANALYSES_PATH, JSON.stringify({}, null, 2));
-  }
-  if (!fs.existsSync(JOBS_PATH)) {
-    fs.writeFileSync(JOBS_PATH, JSON.stringify([], null, 2));
-  }
+  try {
+    if (!fs.existsSync(SETTINGS_PATH)) {
+      fs.writeFileSync(SETTINGS_PATH, JSON.stringify(defaultSettings, null, 2));
+    }
+  } catch {}
+  try {
+    if (!fs.existsSync(ANALYSES_PATH)) {
+      fs.writeFileSync(ANALYSES_PATH, JSON.stringify({}, null, 2));
+    }
+  } catch {}
+  try {
+    if (!fs.existsSync(JOBS_PATH)) {
+      fs.writeFileSync(JOBS_PATH, JSON.stringify([], null, 2));
+    }
+  } catch {}
 }
 initData();
 
 function getSettings() {
   try {
-    const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
-    return { ...defaultSettings, ...JSON.parse(raw) };
-  } catch {
-    return defaultSettings;
-  }
+    if (fs.existsSync(SETTINGS_PATH)) {
+      const raw = fs.readFileSync(SETTINGS_PATH, "utf-8");
+      return { ...defaultSettings, ...JSON.parse(raw) };
+    }
+  } catch {}
+  return defaultSettings;
 }
 
 function getOpenAI(): OpenAI | null {
@@ -703,16 +710,16 @@ app.post("/api/jobs/search", async (req, res) => {
 
       matchedJobs.sort((a: any, b: any) => b.matchPercentage - a.matchPercentage);
 
-      fs.writeFileSync(JOBS_PATH, JSON.stringify(matchedJobs, null, 2));
+      try { fs.writeFileSync(JOBS_PATH, JSON.stringify(matchedJobs, null, 2)); } catch {}
       return res.json({ success: true, jobs: matchedJobs, summary: cvSummary });
     }
 
     const mockJobs = generateMockJobs(rol, skills || "", loc);
-    fs.writeFileSync(JOBS_PATH, JSON.stringify(mockJobs, null, 2));
+    try { fs.writeFileSync(JOBS_PATH, JSON.stringify(mockJobs, null, 2)); } catch {}
     res.json({ success: true, jobs: mockJobs, isMock: true });
   } catch {
     const mockJobs = generateMockJobs(rol, skills || "", loc);
-    fs.writeFileSync(JOBS_PATH, JSON.stringify(mockJobs, null, 2));
+    try { fs.writeFileSync(JOBS_PATH, JSON.stringify(mockJobs, null, 2)); } catch {}
     res.json({ success: true, jobs: mockJobs, isMock: true });
   }
 });
@@ -798,7 +805,7 @@ app.post("/api/settings", (req, res) => {
     location: location !== undefined ? location : current.location,
     searxngUrl: searxngUrl !== undefined ? searxngUrl : current.searxngUrl,
   };
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updated, null, 2));
+  try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updated, null, 2)); } catch {}
   res.json({ success: true, settings: updated });
 });
 
