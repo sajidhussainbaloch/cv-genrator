@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: cv-analysis-backend
+    runtime: node
+    repo: https://github.com/sajidhussainbaloch/cv-genrator
+    branch: main
+    buildCommand: cd backend && npm install && npm run build
+    startCommand: cd backend && node build/index.cjs
+    healthCheckPath: /api/ping
+    plan: free
+    envVars:
+      - key: AI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: AI_MODEL
+        value: gpt-4o-mini
+      - key: AI_API_KEY
+        sync: false
+      - key: VITE_SUPABASE_URL
+        value: https://ethzwbsgifpbqibtgtva.supabase.co
+      - key: VITE_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0aHp3YnNnaWZwYnFpYnRndHZhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM5NjQxNTksImV4cCI6MjA5OTU0MDE1OX0.5rEEnOFVphnd2SJqr6nyJYavrLwqX5gJ6Fb15vdFxhQ
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0aHp3YnNnaWZwYnFpYnRndHZhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4Mzk2NDE1OSwiZXhwIjoyMDk5NTQwMTU5fQ.v7bwvFGOmeSj8xN6IMGBJAt6NdtuHWKqFduahx1ntJc

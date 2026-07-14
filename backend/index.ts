@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import multer from "multer";
 import OpenAI from "openai";
+import cors from "cors";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
@@ -17,6 +18,7 @@ const SETTINGS_PATH = path.join(DATA, "settings.json");
 const JOBS_PATH = path.join(DATA, "jobs.json");
 
 const app = express();
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: "50mb" }));
 
 const supabaseUrl_ = process.env.VITE_SUPABASE_URL || "";
@@ -116,9 +118,7 @@ function heuristicAnalyze(text: string) {
   const lower = text.toLowerCase();
   const foundSkills = skillsTaxonomy.filter((s) => lower.includes(s.toLowerCase()));
   const missingSkills = skillsTaxonomy.filter((s) => !lower.includes(s.toLowerCase())).slice(0, 5);
-  const weak: string[] = [];
-  const suggestions: string[] = [];
-  const strengths: string[] = [];
+  const weak: string[] = []; const suggestions: string[] = []; const strengths: string[] = [];
   if (!lower.includes("experience") && !lower.includes("work history")) {
     weak.push("No experience section found");
     suggestions.push("Add a detailed work experience section with your roles and responsibilities");
@@ -130,10 +130,7 @@ function heuristicAnalyze(text: string) {
     weak.push("No education section found");
     suggestions.push("Include your education background with degrees and institutions");
   }
-  if (!lower.includes("project")) {
-    weak.push("No projects section found");
-    suggestions.push("Add key projects with technologies used and your contributions");
-  }
+  if (!lower.includes("project")) { weak.push("No projects section found"); suggestions.push("Add key projects with technologies used and your contributions"); }
   const wc = text.split(/\s+/).length;
   if (wc < 100) { weak.push("CV is too short (under 100 words)"); suggestions.push("Expand your CV with more details about your experience and skills"); }
   if (wc > 800) { weak.push("CV is too long (over 800 words)"); suggestions.push("Keep your CV concise — aim for 400-600 words"); }
@@ -156,11 +153,7 @@ async function extractText(filePath: string, mimetype: string): Promise<string> 
   if (mimetype === "application/pdf") {
     const dataBuffer = fs.readFileSync(filePath);
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    try {
-      const worker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
-      (globalThis as any).pdfjsWorker = worker;
-    } catch {}
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(dataBuffer) } as any).promise;
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(dataBuffer), useWorkerFetch: false, disableFontFace: true, isEvalSupported: false } as any).promise;
     let text = "";
     for (let i = 1; i <= doc.numPages; i++) {
       const page = await doc.getPage(i);
@@ -233,16 +226,19 @@ const JOB_BOARDS = [
   { name: "Glassdoor", domain: "glassdoor.com", url: (q: string, loc: string) => `https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${q}&locKeyword=${loc}`, color: "#0CAA41" },
   { name: "Google Jobs", domain: "google.com", url: (q: string, loc: string) => `https://www.google.com/search?q=${q}+jobs+${loc}&ibp=htl;jobs`, color: "#4285F4" },
 ];
+
 function shuffleArray<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }
+
 function pickJobBoardLinks(role: string, location: string, count = 6) {
   const q = encodeURIComponent(role || "software engineer");
   const loc = encodeURIComponent(location || "Remote");
   return shuffleArray(JOB_BOARDS).slice(0, count).map((b) => ({ name: b.name, url: b.url(q, loc), color: b.color }));
 }
+
 function generateMockJobs(role: string, skills: string, location: string): any[] {
   const companies = ["Google","Microsoft","Amazon","Meta","Apple","Netflix","Spotify","Shopify","Stripe","GitHub","Atlassian","Notion"];
   const locations = [location || "San Francisco, CA","New York, NY","Seattle, WA",location ? `${location} (Remote)`:"Austin, TX","Remote (US)","Remote (Global)","London, UK","Berlin, Germany"];
@@ -282,9 +278,7 @@ async function searchDuckDuckGo(query: string): Promise<any[]> {
     const dds = await import("duck-duck-scrape");
     const results = await dds.search(query, { safeSearch: -1 });
     return (results.results || []).map((r: any) => ({
-      title: r.title || "",
-      content: r.description || r.snippet || "",
-      url: r.url || "",
+      title: r.title || "", content: r.description || r.snippet || "", url: r.url || "",
       metadata: { source: new URL(r.url || "").hostname.replace("www.", "") },
       parsedUrl: { host: new URL(r.url || "").hostname },
     }));
@@ -298,15 +292,12 @@ async function searchWeb(query: string): Promise<any[]> {
 }
 
 // ===== AGENT ENGINE =====
-
 const sseClients = new Map<string, express.Response>();
 
 function addSSEClient(sessionId: string, res: express.Response) {
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
-    "Cache-Control": "no-cache",
-    Connection: "keep-alive",
-    "X-Accel-Buffering": "no",
+    "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no",
   });
   res.flushHeaders();
   sseClients.set(sessionId, res);
@@ -316,79 +307,55 @@ function addSSEClient(sessionId: string, res: express.Response) {
 
 function sendSSE(sessionId: string, event: string, data: unknown) {
   const client = sseClients.get(sessionId);
-  if (client) {
-    try {
-      client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    } catch {}
-  }
+  if (client) { try { client.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch {} }
 }
 
 async function runAgent(cvText: string, provider: { base_url: string; api_key: string; model: string; temperature?: number; max_tokens?: number }, sessionId: string) {
   const context: any = { cvText, analysis: null, searchResults: [], matchedJobs: [] };
+  const send = (tool: string, status: string, message: string, result?: string) => sendSSE(sessionId, "step", { tool, status, message, result });
 
-  const send = (tool: string, status: string, message: string, result?: string) => {
-    sendSSE(sessionId, "step", { tool, status, message, result });
-  };
-
-  // Step 1: Analyze CV
   send("analyze_cv", "running", "Extracting skills and experience from your CV...");
   const analysisPrompt = `Extract the following from this CV as JSON. Return ONLY valid JSON:\n{\n  "skills": ["skill1", "skill2"],\n  "experience": [{"role": "str", "company": "str", "years": int}],\n  "education": [{"degree": "str", "field": "str"}],\n  "targetRole": "str",\n  "summary": "str"\n}\n\nCV:\n"""${cvText.slice(0, 4000)}"""`;
   const analysisRaw = await callLLM(provider, [{ role: "system", content: "You are a CV analyzer. Output ONLY valid JSON." }, { role: "user", content: analysisPrompt }]);
-  const analysisParsed = analysisRaw ? extractJSON(analysisRaw) : null;
-  context.analysis = analysisParsed || heuristicAnalyze(cvText);
+  context.analysis = analysisRaw ? (extractJSON(analysisRaw) || heuristicAnalyze(cvText)) : heuristicAnalyze(cvText);
   send("analyze_cv", "complete", "CV analyzed successfully", JSON.stringify(context.analysis));
 
-  // Step 2: Generate search queries
-  send("generate_queries", "running", "Generating job search queries based on your profile...");
+  send("generate_queries", "running", "Generating job search queries...");
   const role = context.analysis?.targetRole || "software engineer";
   const skills = (context.analysis?.skills || []).join(", ");
   const query = await generateSearchQuery(role, skills, getSettings().location, cvText);
   const queries = [query, `${role} jobs`, `${skills.split(",")[0]} developer jobs`].filter(Boolean);
-  send("generate_queries", "complete", `Generated ${queries.length} search queries`, queries.join(", "));
+  send("generate_queries", "complete", `Generated ${queries.length} search queries`);
 
-  // Step 3: Search the web
   for (const q of queries.slice(0, 2)) {
     send("search_web", "running", `Searching: "${q}"...`);
     const results = await searchWeb(q);
     context.searchResults.push(...results.map((r: any) => ({ ...r, query: q })));
   }
-  send("search_web", "complete", `Found ${context.searchResults.length} results from web search`);
+  send("search_web", "complete", `Found ${context.searchResults.length} results`);
 
-  // Step 4: Match jobs
-  send("match_jobs", "running", "Matching jobs to your skills and experience...");
-  const jobResults = context.searchResults.slice(0, 10).map((r: any, i: number) => {
+  send("match_jobs", "running", "Matching jobs to your profile...");
+  context.matchedJobs = context.searchResults.slice(0, 10).map((r: any, i: number) => {
     const score = scoreJobByContent(r, skills, cvText);
     return {
       id: `job_${Date.now()}_${i}`, title: r.title || role, company: extractCompany(r),
       location: getSettings().location || r.metadata?.source || "Remote",
-      salary: estimateSalary(r.title || ""), description: r.content || "",
-      url: r.url || "#", matchPercentage: score, matchReasons: generateMatchReasons(skills, score, r),
-      isMock: false,
+      salary: estimateSalary(r.title || ""), description: r.content || "", url: r.url || "#",
+      matchPercentage: score, matchReasons: generateMatchReasons(skills, score, r), isMock: false,
     };
-  });
-  context.matchedJobs = jobResults.sort((a: any, b: any) => b.matchPercentage - a.matchPercentage);
+  }).sort((a: any, b: any) => b.matchPercentage - a.matchPercentage);
   send("match_jobs", "complete", `Found ${context.matchedJobs.length} matching jobs`);
 
-  // Step 5: Improve CV
-  send("improve_cv", "running", "Generating CV improvement suggestions...");
-  const improvePrompt = `Return a JSON object with:\n{\n  "strengths": ["str"],\n  "improvements": ["str"],\n  "keywordsToAdd": ["str"],\n  "atsScore": int\n}\n\nBased on this CV and the top job match requirements.\n\nCV: """${cvText.slice(0, 2000)}"""`;
-  const improveRaw = await callLLM(provider, [{ role: "system", content: "You are a professional resume writer. Output ONLY valid JSON." }, { role: "user", content: improvePrompt }]);
-  const improvement = improveRaw ? extractJSON(improveRaw) : heuristicAnalyze(cvText);
+  send("improve_cv", "running", "Generating CV improvements...");
+  const improveRaw = await callLLM(provider, [{ role: "system", content: "You are a professional resume writer. Output ONLY valid JSON." }, { role: "user", content: `Return JSON: { "strengths": ["str"], "improvements": ["str"], "keywordsToAdd": ["str"], "atsScore": int } based on CV: """${cvText.slice(0, 2000)}"""` }]);
+  const improvement = improveRaw ? (extractJSON(improveRaw) || heuristicAnalyze(cvText)) : heuristicAnalyze(cvText);
   send("improve_cv", "complete", "Improvement suggestions ready");
 
-  sendSSE(sessionId, "complete", {
-    analysis: context.analysis,
-    jobs: context.matchedJobs,
-    improvement,
-    summary: {
-      skillsFound: context.analysis?.skills?.length || 0,
-      jobsFound: context.matchedJobs?.length || 0,
-      topJob: context.matchedJobs?.[0]?.title || null,
-    },
-  });
+  sendSSE(sessionId, "complete", { analysis: context.analysis, jobs: context.matchedJobs, improvement });
 }
 
-// ===== PROVIDER ROUTES =====
+// ===== ROUTES =====
+
 app.get("/api/providers", async (req, res) => {
   const userId = getUserId(req);
   if (!supabaseAdmin_) return res.json({ success: true, data: [] });
@@ -443,14 +410,11 @@ app.post("/api/providers/test", async (req, res) => {
   res.json({ error: "Connection failed" });
 });
 
-// ===== AGENT ROUTES =====
 app.post("/api/agent/prepare", async (req, res) => {
   const { cvText } = req.body;
   if (!cvText) return res.status(400).json({ error: "cvText required" });
   const sessionId = crypto.randomUUID();
-  try {
-    fs.writeFileSync(path.join(SESSIONS, `${sessionId}.json`), JSON.stringify({ cvText, createdAt: Date.now() }));
-  } catch (e: any) { return res.status(500).json({ error: e.message }); }
+  try { fs.writeFileSync(path.join(SESSIONS, `${sessionId}.json`), JSON.stringify({ cvText, createdAt: Date.now() })); } catch (e: any) { return res.status(500).json({ error: e.message }); }
   res.json({ success: true, sessionId });
 });
 
@@ -458,34 +422,19 @@ app.get("/api/agent/run", async (req, res) => {
   const sessionId = req.query.sessionId as string;
   if (!sessionId) return res.status(400).json({ error: "sessionId required" });
   let sessionData: any;
-  try {
-    sessionData = JSON.parse(fs.readFileSync(path.join(SESSIONS, `${sessionId}.json`), "utf-8"));
-  } catch { return res.status(404).json({ error: "Session not found" }); }
-
+  try { sessionData = JSON.parse(fs.readFileSync(path.join(SESSIONS, `${sessionId}.json`), "utf-8")); } catch { return res.status(404).json({ error: "Session not found" }); }
   const providerId = req.query.provider as string;
   let provider: any = null;
   if (providerId && supabaseAdmin_) {
     const { data } = await supabaseAdmin_.from("providers").select("*").eq("id", providerId).single();
     if (data) provider = data;
   }
-  if (!provider) {
-    const s = getSettings();
-    provider = { base_url: s.baseUrl, api_key: s.apiKey, model: s.model, temperature: 0.7, max_tokens: 4096 };
-  }
-
+  if (!provider) { const s = getSettings(); provider = { base_url: s.baseUrl, api_key: s.apiKey, model: s.model, temperature: 0.7, max_tokens: 4096 }; }
   addSSEClient(sessionId, res);
-  try {
-    await runAgent(sessionData.cvText, provider, sessionId);
-  } catch (e: any) {
-    sendSSE(sessionId, "error", { error: e.message });
-  } finally {
-    sseClients.delete(sessionId);
-    try { fs.unlinkSync(path.join(SESSIONS, `${sessionId}.json`)); } catch {}
-    res.end();
-  }
+  try { await runAgent(sessionData.cvText, provider, sessionId); } catch (e: any) { sendSSE(sessionId, "error", { error: e.message }); }
+  finally { sseClients.delete(sessionId); try { fs.unlinkSync(path.join(SESSIONS, `${sessionId}.json`)); } catch {} res.end(); }
 });
 
-// ===== AUTH ROUTES =====
 async function supabaseFetch(p: string, body?: any) {
   if (!supabaseUrl_ || !supabaseAnonKey_) return { error: "Auth not configured" };
   const controller = new AbortController();
@@ -494,8 +443,7 @@ async function supabaseFetch(p: string, body?: any) {
     const res = await fetch(`${supabaseUrl_}${p}`, {
       method: body ? "POST" : "GET",
       headers: { apikey: supabaseAnonKey_, "Content-Type": "application/json" },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: controller.signal,
+      body: body ? JSON.stringify(body) : undefined, signal: controller.signal,
     });
     const data = await res.json();
     return { data, error: res.ok ? null : data.error_description || data.msg || data.error || "Request failed" };
@@ -508,8 +456,7 @@ async function supabaseData(p: string, token: string, options?: { method?: strin
   const method = (options?.method || "GET").toUpperCase();
   try {
     const res = await fetch(`${supabaseUrl_}${p}`, {
-      method,
-      headers: { apikey: supabaseAnonKey_, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      method, headers: { apikey: supabaseAnonKey_, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: ["POST","PATCH","PUT"].includes(method) && options?.body ? JSON.stringify(options.body) : undefined,
     });
     if (method === "DELETE") return { error: res.ok ? null : "Delete failed", status: res.status };
@@ -552,7 +499,6 @@ app.get("/api/auth/me", async (req, res) => {
 
 app.post("/api/auth/logout", (_req, res) => res.json({ success: true }));
 
-// ===== CV ROUTES =====
 app.post("/api/cv/upload", upload.single("file"), async (req: any, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
@@ -565,10 +511,7 @@ app.post("/api/cv/analyze", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "CV text is required" });
   try {
-    const aiResult = await callAI(
-      `Analyze this CV and return a JSON object with: atsScore (0-100), missingSkills (array), weakAreas (array), suggestions (array), strengths (array)\n\nCV:\n"""${text}"""`,
-      "You are an ATS expert. Return ONLY valid JSON."
-    );
+    const aiResult = await callAI(`Analyze this CV and return JSON with: atsScore (0-100), missingSkills (array), weakAreas (array), suggestions (array), strengths (array)\n\nCV:\n"""${text}"""`, "You are an ATS expert. Return ONLY valid JSON.");
     if (aiResult) { const parsed = extractJSON(aiResult); if (parsed?.atsScore) return res.json({ success: true, data: parsed }); }
     res.json({ success: true, data: heuristicAnalyze(text) });
   } catch { res.json({ success: true, data: heuristicAnalyze(text) }); }
@@ -578,38 +521,21 @@ app.post("/api/cv/improve", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "CV text is required" });
   try {
-    const aiResult = await callAI(
-      `Rewrite this CV to be ATS-friendly and more impactful: add strong action verbs, improve structure, inject relevant keywords, add quantifiable achievements, keep it professional (max 600 words)\n\nOriginal CV:\n"""${text}"""\n\nReturn ONLY the rewritten CV.`,
-      "You are a professional resume writer and ATS optimization expert."
-    );
+    const aiResult = await callAI(`Rewrite this CV to be ATS-friendly: add action verbs, improve structure, inject keywords, add quantifiable achievements (max 600 words)\n\nOriginal CV:\n"""${text}"""\n\nReturn ONLY the rewritten CV.`, "You are a professional resume writer.");
     if (aiResult) return res.json({ success: true, optimizedText: aiResult });
     const lines = text.split("\n");
-    const improved = [
-      (lines[0] || "PROFESSIONAL CV").toUpperCase(), "",
-      "PROFESSIONAL SUMMARY",
-      "Results-driven professional with proven expertise in delivering high-impact solutions.",
-      "", "CORE COMPETENCIES",
-      "- Strategic Planning & Execution", "- Cross-functional Team Leadership",
-      "- Process Optimization & Efficiency", "- Stakeholder Management",
-      "- Data-driven Decision Making", "",
-      ...lines.slice(1).map((l: string) => l.trim()).filter(Boolean),
-    ].join("\n");
-    res.json({ success: true, optimizedText: improved });
+    res.json({ success: true, optimizedText: [(lines[0] || "PROFESSIONAL CV").toUpperCase(),"","PROFESSIONAL SUMMARY","Results-driven professional with proven expertise.",...lines.slice(1).map((l: string) => l.trim()).filter(Boolean)].join("\n") });
   } catch { res.status(500).json({ error: "Failed to improve CV" }); }
 });
 
 app.post("/api/cv/suggest", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "CV text is required" });
-  const aiResult = await callAI(
-    `Analyze this CV and return JSON with: suggestedRole (string), suggestedSkills (array of 5-8 strings), suggestedLocations (array of 3-4 strings including "Remote")\n\nCV:\n"""${text.slice(0, 3000)}"""`,
-    "You are a career analyst. Return ONLY valid JSON."
-  );
+  const aiResult = await callAI(`Analyze this CV and return JSON with: suggestedRole (string), suggestedSkills (array of 5-8), suggestedLocations (array of 3-4 including "Remote")\n\nCV:\n"""${text.slice(0, 3000)}"""`, "You are a career analyst. Return ONLY valid JSON.");
   if (aiResult) { const parsed = extractJSON(aiResult); if (parsed?.suggestedRole) return res.json({ success: true, data: parsed }); }
   res.json({ success: true, data: { suggestedRole: "Software Engineer", suggestedSkills: skillsTaxonomy.slice(0, 6), suggestedLocations: ["Remote","United States","United Kingdom","Germany"] } });
 });
 
-// ===== JOBS ROUTES =====
 app.post("/api/jobs/search", async (req, res) => {
   const { skills, role, location, cvText } = req.body;
   const loc = location?.trim() || "Remote";
@@ -619,29 +545,16 @@ app.post("/api/jobs/search", async (req, res) => {
     const siteQueries = shuffleArray(JOB_BOARDS).slice(0, 3).map((b: any) => `site:${b.domain} ${searchQuery}`);
     let jobResults: any[] = [];
     for (const q of [...siteQueries, searchQuery]) { jobResults = await searchWeb(q); if (jobResults.length > 0) break; }
-    const cvSummary = jobResults.length > 0 && cvText ? await callAI(
-      `Summarize this CV's key skills and target role in 2-3 sentences (under 100 words):\n"""${cvText.slice(0, 3000)}"""`,
-      "You are a career summary writer."
-    ) : null;
     const boardLinks = pickJobBoardLinks(rol, loc, 6);
     const matchedJobs = (jobResults.length > 0 ? jobResults.slice(0, 12) : generateMockJobs(rol, skills || "", loc))
       .map((result: any, idx: number) => {
         const isMock = !jobResults.length;
         const s = isMock ? result.matchPercentage : scoreJobByContent(result, skills || "", cvText || "");
-        return {
-          id: `job_${Date.now()}_${idx}`, title: result.title || `${rol}`,
-          company: isMock ? result.company : extractCompany(result),
-          location: isMock ? result.location : (result.metadata?.source || result.parsedUrl?.host || loc),
-          salary: isMock ? result.salary : estimateSalary(result.title || ""),
-          description: result.description || result.content || "",
-          url: result.url || boardLinks[0]?.url || "#",
-          matchPercentage: s, matchReasons: generateMatchReasons(skills || "", s, result),
-          isMock, boardLinks,
-        };
+        return { id: `job_${Date.now()}_${idx}`, title: result.title || `${rol}`, company: isMock ? result.company : extractCompany(result), location: isMock ? result.location : (result.metadata?.source || result.parsedUrl?.host || loc), salary: isMock ? result.salary : estimateSalary(result.title || ""), description: result.description || result.content || "", url: result.url || boardLinks[0]?.url || "#", matchPercentage: s, matchReasons: generateMatchReasons(skills || "", s, result), isMock, boardLinks };
       });
     matchedJobs.sort((a: any, b: any) => b.matchPercentage - a.matchPercentage);
     try { fs.writeFileSync(JOBS_PATH, JSON.stringify(matchedJobs, null, 2)); } catch {}
-    res.json({ success: true, jobs: matchedJobs, summary: cvSummary });
+    res.json({ success: true, jobs: matchedJobs });
   } catch {
     const mockJobs = generateMockJobs(rol, skills || "", loc);
     try { fs.writeFileSync(JOBS_PATH, JSON.stringify(mockJobs, null, 2)); } catch {}
@@ -653,7 +566,6 @@ app.get("/api/jobs", (_req, res) => {
   try { res.json(JSON.parse(fs.readFileSync(JOBS_PATH, "utf-8"))); } catch { res.json([]); }
 });
 
-// ===== SETTINGS ROUTES =====
 app.get("/api/settings", (_req, res) => {
   const s = getSettings();
   res.json({ baseUrl: s.baseUrl, model: s.model, apiKey: s.apiKey, location: s.location || "", searxngUrl: s.searxngUrl || "" });
@@ -662,15 +574,11 @@ app.get("/api/settings", (_req, res) => {
 app.post("/api/settings", (req, res) => {
   const { baseUrl, model, apiKey, location, searxngUrl } = req.body;
   const current = getSettings();
-  const updated = {
-    baseUrl: baseUrl ?? current.baseUrl, model: model ?? current.model, apiKey: apiKey ?? current.apiKey,
-    location: location ?? current.location, searxngUrl: searxngUrl ?? current.searxngUrl,
-  };
+  const updated = { baseUrl: baseUrl ?? current.baseUrl, model: model ?? current.model, apiKey: apiKey ?? current.apiKey, location: location ?? current.location, searxngUrl: searxngUrl ?? current.searxngUrl };
   try { fs.writeFileSync(SETTINGS_PATH, JSON.stringify(updated, null, 2)); } catch {}
   res.json({ success: true, settings: updated });
 });
 
-// ===== HISTORY ROUTES =====
 app.get("/api/cv/history", async (req, res) => {
   const token = getAuthToken(req);
   if (!token) return res.status(401).json({ error: "No token" });
@@ -697,18 +605,11 @@ app.delete("/api/cv/history/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-// ===== DEBUG =====
-app.get("/api/ping", (_req, res) => res.json({ ok: true, vercel: !!process.env.VERCEL, node: process.version }));
-app.get("/api/debug/load", (_req, res) => {
-  res.json({ multer: typeof multer, supabase: !!supabaseAdmin_, cwd: process.cwd() });
-});
-app.get("/api/debug/env", (_req, res) => {
-  res.json({ supabaseUrl: supabaseUrl_?.slice(0, 20) + "...", hasAnonKey: !!supabaseAnonKey_, hasServiceKey: !!serviceRoleKey_, aiUrl: (process.env.AI_BASE_URL || "").slice(0, 20) + "..." });
-});
+app.get("/api/ping", (_req, res) => res.json({ ok: true, node: process.version }));
+app.get("/api/debug/load", (_req, res) => res.json({ multer: typeof multer, supabase: !!supabaseAdmin_, cwd: process.cwd() }));
+app.get("/api/debug/env", (_req, res) => res.json({ supabaseUrl: supabaseUrl_?.slice(0, 20) + "...", hasAnonKey: !!supabaseAnonKey_, hasServiceKey: !!serviceRoleKey_, aiUrl: (process.env.AI_BASE_URL || "").slice(0, 20) + "..." }));
 
-// ===== STATIC =====
 app.use("/uploads", express.static(UPLOADS));
-app.use(express.static(path.join(process.cwd(), "dist")));
-app.get("*", (_req, res) => res.sendFile(path.join(process.cwd(), "dist", "index.html")));
 
-export default app;
+const PORT = parseInt(process.env.PORT || "10000", 10);
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
