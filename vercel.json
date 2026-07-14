@@ -8,8 +8,9 @@
     }
   },
   "routes": [
-    { "src": "/assets/(.*)", "dest": "api/index.ts" },
+    { "src": "/api/(.*)", "dest": "api/index.ts" },
     { "src": "/uploads/(.*)", "dest": "api/index.ts" },
+    { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "api/index.ts" }
   ]
 }

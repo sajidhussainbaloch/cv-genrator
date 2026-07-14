@@ -6,6 +6,8 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
+declare module "pdfjs-dist/legacy/build/pdf.worker.mjs";
+
 try { fs.mkdirSync("/tmp/data", { recursive: true }); } catch {}
 try { fs.mkdirSync("/tmp/uploads", { recursive: true }); } catch {}
 try { fs.mkdirSync("/tmp/sessions", { recursive: true }); } catch {}
