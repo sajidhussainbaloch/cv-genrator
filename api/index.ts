@@ -566,35 +566,53 @@ app.post("/api/cv/analyze", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "CV text is required" });
   try {
-    const aiResult = await callAI(
-      `Analyze this CV and return a JSON object with: atsScore (0-100), missingSkills (array), weakAreas (array), suggestions (array), strengths (array)\n\nCV:\n"""${text}"""`,
-      "You are an ATS expert. Return ONLY valid JSON."
-    );
-    if (aiResult) { const parsed = extractJSON(aiResult); if (parsed?.atsScore) return res.json({ success: true, data: parsed }); }
-    res.json({ success: true, data: heuristicAnalyze(text) });
-  } catch { res.json({ success: true, data: heuristicAnalyze(text) }); }
+    const provider = { base_url: process.env.AI_BASE_URL || "https://api.openai.com/v1", api_key: process.env.AI_API_KEY || "", model: process.env.AI_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: 4096 };
+    const context: any = { cvText: text, analysis: null, searchResults: [], matchedJobs: [] };
+
+    const analysisPrompt = `Extract the following from this CV as JSON. Return ONLY valid JSON:\n{\n  "skills": ["skill1", "skill2"],\n  "experience": [{"role": "str", "company": "str", "years": int}],\n  "education": [{"degree": "str", "field": "str"}],\n  "targetRole": "str",\n  "summary": "str"\n}\n\nCV:\n"""${text.slice(0, 4000)}"""`;
+    const analysisRaw = await callLLM(provider, [{ role: "system", content: "You are a CV analyzer. Output ONLY valid JSON." }, { role: "user", content: analysisPrompt }]);
+    const analysisParsed = analysisRaw ? extractJSON(analysisRaw) : null;
+    context.analysis = analysisParsed || heuristicAnalyze(text);
+
+    const role = context.analysis?.targetRole || "software engineer";
+    const skills = (context.analysis?.skills || []).join(", ");
+    const query = await generateSearchQuery(role, skills, getSettings().location, text);
+    const queries = [query, `${role} jobs`, `${skills.split(",")[0]} developer jobs`].filter(Boolean);
+
+    for (const q of queries.slice(0, 2)) {
+      const results = await searchWeb(q);
+      context.searchResults.push(...results.map((r: any) => ({ ...r, query: q })));
+    }
+
+    const jobResults = context.searchResults.slice(0, 10).map((r: any, i: number) => {
+      const score = scoreJobByContent(r, skills, text);
+      return { id: `job_${Date.now()}_${i}`, title: r.title || role, company: extractCompany(r), location: getSettings().location || r.metadata?.source || "Remote", salary: estimateSalary(r.title || ""), description: r.content || "", url: r.url || "#", matchPercentage: score, matchReasons: generateMatchReasons(skills, score, r), isMock: false };
+    });
+    context.matchedJobs = jobResults.sort((a: any, b: any) => b.matchPercentage - a.matchPercentage);
+    try { fs.writeFileSync(JOBS_PATH, JSON.stringify(context.matchedJobs, null, 2)); } catch {}
+
+    const improvePrompt = `Return a JSON object with:\n{\n  "atsScore": int (0-100),\n  "missingSkills": ["str"],\n  "weakAreas": ["str"],\n  "suggestions": ["str"],\n  "strengths": ["str"],\n  "improvements": ["str"],\n  "keywordsToAdd": ["str"]\n}\n\nBased on this CV and real job market data from ${context.searchResults.length} job listings found online.\n\nCV: """${text.slice(0, 2000)}"""`;
+    const improveRaw = await callLLM(provider, [{ role: "system", content: "You are an ATS expert and career analyst. Output ONLY valid JSON." }, { role: "user", content: improvePrompt }]);
+    const improvement = improveRaw ? extractJSON(improveRaw) : heuristicAnalyze(text);
+    if (improvement?.atsScore) return res.json({ success: true, data: improvement, jobs: context.matchedJobs });
+    res.json({ success: true, data: heuristicAnalyze(text), jobs: context.matchedJobs });
+  } catch { res.json({ success: true, data: heuristicAnalyze(text), jobs: [] }); }
 });
 
 app.post("/api/cv/improve", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "CV text is required" });
   try {
-    const aiResult = await callAI(
-      `Rewrite this CV to be ATS-friendly and more impactful: add strong action verbs, improve structure, inject relevant keywords, add quantifiable achievements, keep it professional (max 600 words)\n\nOriginal CV:\n"""${text}"""\n\nReturn ONLY the rewritten CV.`,
-      "You are a professional resume writer and ATS optimization expert."
-    );
+    const provider = { base_url: process.env.AI_BASE_URL || "https://api.openai.com/v1", api_key: process.env.AI_API_KEY || "", model: process.env.AI_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: 4096 };
+    const skills = heuristicAnalyze(text)?.skills || [];
+    const query = await generateSearchQuery("software engineer", skills.join(", "), getSettings().location, text);
+    const results = await searchWeb(query);
+    const jobData = results.slice(0, 5).map((r: any) => r.title || r.content?.slice(0, 200)).filter(Boolean).join("\n---\n");
+    const improvePrompt = `Rewrite this CV to be ATS-friendly and more impactful, using real job market data below. Add strong action verbs, improve structure, inject relevant keywords found in job postings, add quantifiable achievements, keep it professional (max 600 words).\n\nReal job postings from the web:\n"""${jobData.slice(0, 2000)}"""\n\nOriginal CV:\n"""${text}"""\n\nReturn ONLY the rewritten CV.`;
+    const aiResult = await callLLM(provider, [{ role: "system", content: "You are a professional resume writer and ATS optimization expert who researches current market demands." }, { role: "user", content: improvePrompt }]);
     if (aiResult) return res.json({ success: true, optimizedText: aiResult });
     const lines = text.split("\n");
-    const improved = [
-      (lines[0] || "PROFESSIONAL CV").toUpperCase(), "",
-      "PROFESSIONAL SUMMARY",
-      "Results-driven professional with proven expertise in delivering high-impact solutions.",
-      "", "CORE COMPETENCIES",
-      "- Strategic Planning & Execution", "- Cross-functional Team Leadership",
-      "- Process Optimization & Efficiency", "- Stakeholder Management",
-      "- Data-driven Decision Making", "",
-      ...lines.slice(1).map((l: string) => l.trim()).filter(Boolean),
-    ].join("\n");
+    const improved = [(lines[0] || "PROFESSIONAL CV").toUpperCase(), "", "PROFESSIONAL SUMMARY", "Results-driven professional with proven expertise in delivering high-impact solutions.", "", "CORE COMPETENCIES", "- Strategic Planning & Execution", "- Cross-functional Team Leadership", "- Process Optimization & Efficiency", "- Stakeholder Management", "- Data-driven Decision Making", "", ...lines.slice(1).map((l: string) => l.trim()).filter(Boolean)].join("\n");
     res.json({ success: true, optimizedText: improved });
   } catch { res.status(500).json({ error: "Failed to improve CV" }); }
 });
