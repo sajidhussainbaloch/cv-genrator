@@ -6,8 +6,6 @@ import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
-declare module "pdfjs-dist/legacy/build/pdf.worker.mjs";
-
 try { fs.mkdirSync("/tmp/data", { recursive: true }); } catch {}
 try { fs.mkdirSync("/tmp/uploads", { recursive: true }); } catch {}
 try { fs.mkdirSync("/tmp/sessions", { recursive: true }); } catch {}
@@ -159,6 +157,7 @@ async function extractText(filePath: string, mimetype: string): Promise<string> 
     const dataBuffer = fs.readFileSync(filePath);
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     try {
+      // @ts-expect-error no types for worker module
       const worker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
       (globalThis as any).pdfjsWorker = worker;
     } catch {}
