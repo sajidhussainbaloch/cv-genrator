@@ -841,4 +841,11 @@ async function startServer() {
   });
 }
 
-startServer();
+// On Vercel: serve static files, don't listen (Vercel handles that)
+if (process.env.VERCEL) {
+  app.use(express.static(path.join(__dirname, "..", "dist")));
+} else {
+  startServer();
+}
+
+export default app;
