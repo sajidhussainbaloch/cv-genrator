@@ -604,7 +604,7 @@ app.post("/api/cv/improve", async (req, res) => {
   if (!text) return res.status(400).json({ error: "CV text is required" });
   try {
     const provider = { base_url: process.env.AI_BASE_URL || "https://api.openai.com/v1", api_key: process.env.AI_API_KEY || "", model: process.env.AI_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: 4096 };
-    const skills = heuristicAnalyze(text)?.skills || [];
+    const skills = skillsTaxonomy.filter((s) => text.toLowerCase().includes(s.toLowerCase()));
     const query = await generateSearchQuery("software engineer", skills.join(", "), getSettings().location, text);
     const results = await searchWeb(query);
     const jobData = results.slice(0, 5).map((r: any) => r.title || r.content?.slice(0, 200)).filter(Boolean).join("\n---\n");
