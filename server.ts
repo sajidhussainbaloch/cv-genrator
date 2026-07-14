@@ -5,12 +5,9 @@ import multer from "multer";
 import OpenAI from "openai";
 
 import { spawn } from "child_process";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function loadEnv() {
-  const envPath = path.join(__dirname, ".env");
+  const envPath = path.join(process.cwd(), ".env");
   if (!fs.existsSync(envPath)) return;
   const content = fs.readFileSync(envPath, "utf-8");
   for (const line of content.split("\n")) {
@@ -27,8 +24,8 @@ function loadEnv() {
   }
 }
 loadEnv();
-const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "data") : path.join(__dirname, "data");
-const UPLOAD_DIR = process.env.VERCEL ? path.join("/tmp", "uploads") : path.join(__dirname, "uploads");
+const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "data") : path.join(process.cwd(), "data");
+const UPLOAD_DIR = process.env.VERCEL ? path.join("/tmp", "uploads") : path.join(process.cwd(), "uploads");
 
 try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch {}
 try { if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch {}
@@ -850,9 +847,9 @@ async function startServer() {
 
 // On Vercel: serve static files, don't listen (Vercel handles that)
 if (process.env.VERCEL) {
-  app.use(express.static(path.join(__dirname, "..", "dist")));
+  app.use(express.static(path.join(process.cwd(), "dist")));
   app.get("*", (_req, res) => {
-    res.sendFile(path.join(__dirname, "..", "dist", "index.html"));
+    res.sendFile(path.join(process.cwd(), "dist", "index.html"));
   });
 } else {
   startServer();
