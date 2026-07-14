@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import multer from "multer";
-import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 
 import { spawn } from "child_process";
@@ -837,6 +836,7 @@ async function startServer() {
   console.log("CV Analysis Studio starting...");
   tryStartLocalSearXNG();
 
+  const { createServer: createViteServer } = await import("vite");
   const vite = await createViteServer({
     server: { middlewareMode: true, hmr: false },
     appType: "spa",
