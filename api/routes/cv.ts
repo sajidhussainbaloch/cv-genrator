@@ -1,7 +1,7 @@
 import { upload, extractText, callAI, extractJSON, heuristicAnalyze } from "../lib/shared";
 
 export function setupRoutes(app: any) {
-  app.post("/api/cv/upload", upload.single("file"), async (req, res) => {
+  app.post("/api/cv/upload", upload.single("file"), async (req: any, res: any) => {
     try {
       if (!req.file) return res.status(400).json({ error: "No file uploaded" });
       const text = await extractText(req.file.path, req.file.mimetype);
@@ -9,7 +9,7 @@ export function setupRoutes(app: any) {
     } catch (err: any) { res.status(500).json({ error: err.message || "Failed to parse file" }); }
   });
 
-  app.post("/api/cv/analyze", async (req, res) => {
+  app.post("/api/cv/analyze", async (req: any, res: any) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: "CV text is required" });
     try {
@@ -22,7 +22,7 @@ export function setupRoutes(app: any) {
     } catch { res.json({ success: true, data: heuristicAnalyze(text) }); }
   });
 
-  app.post("/api/cv/improve", async (req, res) => {
+  app.post("/api/cv/improve", async (req: any, res: any) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: "CV text is required" });
     try {
@@ -50,7 +50,7 @@ export function setupRoutes(app: any) {
     } catch { res.status(500).json({ error: "Failed to improve CV" }); }
   });
 
-  app.post("/api/cv/suggest", async (req, res) => {
+  app.post("/api/cv/suggest", async (req: any, res: any) => {
     const { text } = req.body;
     if (!text) return res.status(400).json({ error: "CV text is required" });
     const aiResult = await callAI(

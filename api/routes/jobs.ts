@@ -6,7 +6,7 @@ import {
 } from "../lib/shared";
 
 export function setupRoutes(app: any) {
-  app.post("/api/jobs/search", async (req, res) => {
+  app.post("/api/jobs/search", async (req: any, res: any) => {
     const { skills, role, location, cvText } = req.body;
     const loc = location?.trim() || "Remote";
     const rol = role?.trim() || "software engineer";
@@ -48,7 +48,7 @@ export function setupRoutes(app: any) {
     }
   });
 
-  app.get("/api/jobs", (_req, res) => {
+  app.get("/api/jobs", (_req: any, res: any) => {
     try { res.json(JSON.parse(fs.readFileSync(JOBS_PATH, "utf-8"))); } catch { res.json([]); }
   });
 }
